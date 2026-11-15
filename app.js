@@ -25,6 +25,69 @@ function renderSchedule() {const sessions=state.sessions.filter(s=>s.day===state
 function renderTickets() {$('#ticket-cards').innerHTML=state.tiers.map((t,i)=>{const soldOut=t.sold>=t.total;const low=t.total-t.sold<=25;const status=soldOut?'Sold Out':!t.active?'Paused':low?'Low Stock':'Active';return `<article class="card bg-base-100"><div class="card-body p-6"><div class="flex justify-between"><span class="text-primary">${icon('ticket')}</span><span class="badge badge-sm ${soldOut||!t.active?'badge-ghost':low?'badge-warning badge-soft':'badge-success badge-soft'}">${status}</span></div><h2 class="text-lg font-semibold mt-3">${t.label}</h2><p class="text-xs text-base-content/50 min-h-10">${t.note}</p><p class="text-3xl font-semibold my-4">$${t.price}<span class="text-xs font-normal text-base-content/40"> / ticket</span></p><div class="flex justify-between text-xs"><span>${t.sold} sold</span><span class="text-base-content/40">${t.total} total</span></div><progress class="progress ${t.color} w-full mt-1" value="${t.sold}" max="${t.total}" aria-label="${t.name} tickets sold"></progress><div class="border-t border-base-300 mt-5 pt-4 flex justify-between items-center"><span class="text-xs">${soldOut?'Allocation complete':t.active?'Sales enabled':'Sales paused'}</span><input type="checkbox" class="toggle toggle-primary toggle-sm" data-tier="${i}" aria-label="Enable ${t.name} ticket sales" ${t.active?'checked':''} ${soldOut?'disabled':''}></div></div></article>`;}).join('');}
 function renderAttendees() {const query=$('#attendee-search').value.trim().toLowerCase(),tier=$('#tier-filter').value,status=$('#status-filter').value;const attendees=state.attendees.filter(a=>`${a.name} ${a.email} ${a.order}`.toLowerCase().includes(query)&&(tier==='all'||a.tier===tier)&&(status==='all'||a.checked===(status==='in')));$('#attendees').innerHTML=attendees.length?attendees.map(a=>`<tr><td><div class="flex items-center gap-3"><div class="rounded-full bg-primary/10 text-primary text-xs font-semibold size-9 grid place-items-center shrink-0">${a.name.split(' ').map(p=>p[0]).slice(0,2).join('')}</div><div><p class="font-medium">${escapeHTML(a.name)}</p><p class="text-xs text-base-content/45">${escapeHTML(a.email)}</p></div></div></td><td><span class="badge badge-sm ${a.tier==='VIP'?'badge-primary badge-soft':a.tier==='Student'?'badge-warning badge-soft':'badge-ghost'}">${a.tier}</span></td><td class="text-xs text-base-content/50">#${a.order}</td><td><span class="badge badge-sm ${a.checked?'badge-success badge-soft':'badge-ghost'}">${a.checked?'✓ Checked In':'Not checked in'}</span></td><td>${a.checked?'<span class="text-xs text-base-content/35">Admitted</span>':`<button class="btn btn-primary btn-outline btn-xs whitespace-nowrap" data-checkin="${a.order}">Check In</button>`}</td></tr>`).join(''):'<tr><td colspan="5" class="text-center py-12 text-base-content/50">No attendees match your filters.</td></tr>';$('#attendee-summary').textContent=`Showing ${attendees.length} of ${state.attendees.length} sample attendees · 1,248 total registrations`;}
 function renderRooms() {$('#rooms').innerHTML=state.rooms.map(r=>`<article class="card bg-base-100"><div class="card-body p-6"><div class="flex justify-between items-center"><span class="bg-primary/10 text-primary p-3 rounded-xl">${icon('venue')}</span><span class="badge badge-sm ${r.occupancy?'badge-primary badge-soft':'badge-success badge-soft'}">${r.status}</span></div><h2 class="text-lg font-semibold mt-3">${r.name}</h2><p class="text-xs text-base-content/45">${r.floor} · Max capacity ${r.capacity}</p><div class="flex justify-between mt-4 text-xs"><span>Current occupancy</span><span>${r.occupancy} / ${r.capacity}</span></div><progress class="progress ${r.occupancy/r.capacity>.85?'progress-warning':'progress-primary'} w-full" max="${r.capacity}" value="${r.occupancy}" aria-label="${r.name} occupancy"></progress><div class="flex flex-wrap gap-2 mt-4">${r.equipment.map(e=>`<span class="badge badge-ghost badge-sm text-[10px]">${e}</span>`).join('')}</div></div></article>`).join('');}
+views.seats = ['Venue Seat Map', 'Interactive seat map', 'Find the perfect spot. Manage seating with a clear view of the room.', 'grid'];
+// Coordinates are kept in state so rendering and booking share one source of truth.
+state.seatSections = [
+ {name:'VIP Front', prefix:'V', rows:2, columns:10, y:128, price:150},
+ {name:'Standard Center', prefix:'S', rows:3, columns:14, y:248, price:65},
+ {name:'Balcony', prefix:'B', rows:2, columns:14, y:400, price:45}
+];
+state.seats = state.seatSections.flatMap(section => Array.from({length:section.rows * section.columns}, (_,index) => {
+ const row=Math.floor(index/section.columns), column=index%section.columns;
+ return {id:`${section.prefix}${row+1}-${String(column+1).padStart(2,'0')}`, section:section.name, price:section.price,
+  x:400-section.columns*38/2+column*38+(column>=section.columns/2?12:-12), y:section.y+row*34,
+  status:(index+section.prefix.charCodeAt(0))%7===0?'reserved':'available'};
+}));
+state.selectedSeats = new Set();
+state.seatZoom = 1;
+function renderSeatMap() {
+ const selected=state.seats.filter(seat=>state.selectedSeats.has(seat.id));
+ $('#seat-layout').innerHTML = `<rect x="185" y="20" width="430" height="48" rx="10" fill="var(--color-primary)" opacity=".12"/><text x="400" y="50" text-anchor="middle" fill="var(--color-primary)" font-size="16" font-weight="600" letter-spacing="5">STAGE</text>` +
+  state.seatSections.map(section=>`<text x="400" y="${section.y-17}" text-anchor="middle" fill="currentColor" opacity=".55" font-size="12">${section.name} · $${section.price}</text>`).join('') +
+  state.seats.map(seat=>{const chosen=state.selectedSeats.has(seat.id),reserved=seat.status!=='available';return `<g data-seat="${seat.id}" role="button" tabindex="${reserved?-1:0}" aria-label="${seat.section}, seat ${seat.id}, ${reserved?seat.status:chosen?'selected':'available'}, $${seat.price}" aria-pressed="${chosen}" aria-disabled="${reserved}" class="${reserved?'':'cursor-pointer focus:outline focus:outline-2 focus:outline-primary'}"><title>${seat.id} · ${seat.section} · ${reserved?seat.status:chosen?'Selected':'Available'}</title><rect x="${seat.x}" y="${seat.y}" width="28" height="25" rx="5" fill="${reserved?'var(--color-base-content)':chosen?'var(--color-primary)':'var(--color-base-100)'}" fill-opacity="${reserved?'.22':'1'}" stroke="${reserved?'none':'var(--color-primary)'}" stroke-width="1.2"/><text x="${seat.x+14}" y="${seat.y+16}" text-anchor="middle" font-size="8" pointer-events="none" fill="${chosen?'var(--color-primary-content)':'currentColor'}">${seat.id}</text></g>`;}).join('');
+ $('#selected-seats').innerHTML=selected.length?selected.map(seat=>`<div class="flex justify-between items-center rounded-lg bg-base-200/60 p-3 text-xs"><div><strong>${seat.id}</strong><span class="block text-base-content/50 mt-1">${seat.section}</span></div><span class="ml-auto mr-2">$${seat.price}</span><button class="btn btn-ghost btn-xs" data-remove-seat="${seat.id}" aria-label="Remove seat ${seat.id}">×</button></div>`).join(''):'<p class="text-sm text-base-content/40 py-8 text-center">Your seats are waiting.<br>Select an available seat on the map.</p>';
+ $('#seat-count').textContent=selected.length;
+ $('#seat-total').textContent=`$${selected.reduce((sum,seat)=>sum+seat.price,0).toLocaleString()}`;
+ $('#seat-availability').textContent=`${state.seats.filter(seat=>seat.status==='available').length} / ${state.seats.length} available`;
+ ['book-seats','checkin-seats','clear-seats'].forEach(id=>$(`#${id}`).disabled=!selected.length);
+}
+function toggleSeat(id) {
+ const seat=state.seats.find(seat=>seat.id===id);
+ if(!seat||seat.status!=='available')return;
+ state.selectedSeats.has(id)?state.selectedSeats.delete(id):state.selectedSeats.add(id);
+ $('#seat-confirmation').textContent='';
+ renderSeatMap();
+ // Re-rendering replaces SVG nodes; restore focus for keyboard navigation.
+ $(`[data-seat="${id}"]`).focus({preventScroll:true});
+}
+$('#seat-map').addEventListener('click',event=>{const seat=event.target.closest('[data-seat]');if(seat)toggleSeat(seat.dataset.seat);});
+$('#seat-map').addEventListener('keydown',event=>{const seat=event.target.closest('[data-seat]');if(seat&&(event.key==='Enter'||event.key===' ')){event.preventDefault();toggleSeat(seat.dataset.seat);}});
+$('#selected-seats').addEventListener('click',event=>{const button=event.target.closest('[data-remove-seat]');if(button)toggleSeat(button.dataset.removeSeat);});
+function zoomSeats(delta) {
+ state.seatZoom=delta===0?1:Math.max(1,Math.min(2.5,Math.round((state.seatZoom+delta)*100)/100));
+ $('#seat-map').style.width=`${state.seatZoom*100}%`;
+ $('#zoom-out').disabled=state.seatZoom===1;
+ $('#zoom-in').disabled=state.seatZoom===2.5;
+ $('#zoom-reset').textContent=state.seatZoom===1?'Reset':`Reset (${Math.round(state.seatZoom*100)}%)`;
+ if(delta===0){$('#seat-viewport').scrollLeft=0;$('#seat-viewport').scrollTop=0;}
+}
+$('#zoom-in').addEventListener('click',()=>zoomSeats(.25));
+$('#zoom-out').addEventListener('click',()=>zoomSeats(-.25));
+$('#zoom-reset').addEventListener('click',()=>zoomSeats(0));
+$('#clear-seats').addEventListener('click',()=>{state.selectedSeats.clear();$('#seat-confirmation').textContent='';renderSeatMap();});
+function confirmSeats(checkin) {
+ const selected=state.seats.filter(seat=>state.selectedSeats.has(seat.id)&&seat.status==='available');
+ if(!selected.length)return;
+ selected.forEach(seat=>{seat.status=checkin?'checked in':'reserved';});
+ state.selectedSeats.clear();
+ renderSeatMap();
+ const message=`${checkin?'Seat check-in confirmed':'Booking confirmed'}: ${selected.map(seat=>seat.id).join(', ')}.`;
+ $('#seat-confirmation').textContent=message;
+ toast(message);
+}
+$('#book-seats').addEventListener('click',()=>confirmSeats(false));
+$('#checkin-seats').addEventListener('click',()=>confirmSeats(true));
+renderSeatMap();zoomSeats(0);
 $('#navigation').innerHTML=Object.entries(views).map(([key,[label,,,glyph]])=>`<a href="#${key}" data-go="${key}" class="nav-item flex items-center gap-3 px-3 py-3 rounded-lg text-xs text-base-content/55">${icon(glyph,'size-4.5')} ${label}${key==='attendees'?'<span class="ml-auto text-[9px] bg-base-200 rounded px-1.5 py-0.5">1.2k</span>':''}</a>`).join('');
 $('#session-room').innerHTML=state.rooms.slice(0,4).map(r=>`<option>${r.name}</option>`).join('');
 document.addEventListener('click',event=>{const nav=event.target.closest('[data-go]');if(nav){event.preventDefault();navigate(nav.dataset.go);}const close=event.target.closest('[data-close]');if(close)$(`#${close.dataset.close}`).close();const check=event.target.closest('[data-checkin]');if(check){const attendee=state.attendees.find(a=>a.order===check.dataset.checkin);if(!attendee||attendee.checked)return;attendee.checked=true;state.checkedIn++;state.activity.unshift({name:attendee.name,detail:'checked in at Main Entrance',time:'Just now',type:'check'});renderAttendees();renderOverview();toast(`${attendee.name} checked in successfully.`);}});
